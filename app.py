@@ -3,7 +3,6 @@ import pandas as pd
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from io import BytesIO
 from fpdf import FPDF
 
 # Configuração do Fuso Horário de Brasília (UTC-3)
@@ -11,7 +10,7 @@ FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 # Configuração da página
 st.set_page_config(
-    page_title="Sistema de Ponto com PDF",
+    page_title="Sistema de Ponto 4 Batidas",
     page_icon="📍",
     layout="wide"
 )
@@ -45,15 +44,16 @@ def salvar_registros(df_registros):
     with open(ARQUIVO_REGISTROS, "w", encoding="utf-8") as f:
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
-# Função para gerar o PDF organizado por data
-def gerar_pdf(df):
-    pdf = FPDF()
+# Função para gerar o PDF em MODO PAISAGEM (Horizontal) organizado por data
+def gerar_pdf_paisagem(df):
+    # orientation='L' (Landscape / Paisagem), unidade='mm', formato='A4'
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
     # Cabeçalho do Relatório
     pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, "Relatorio de Espelho de Ponto", ln=True, align="center")
+    pdf.cell(0, 10, "Relatorio de Espelho de Ponto - Jornada de 4 Registros", ln=True, align="center")
     
     pdf.set_font("helvetica", "", 10)
     gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
@@ -65,13 +65,12 @@ def gerar_pdf(df):
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
         df = df.sort_values(by="DataObj", ascending=True)
 
-    # Tabela no PDF
+    # Tabela no PDF (A4 Paisagem tem largura útil de cerca de 277mm)
     pdf.set_font("helvetica", "B", 10)
     pdf.set_fill_color(220, 220, 220)
     
-    # Larguras das colunas
-    col_widths = [35, 30, 45, 40, 40]
-    headers = ["Colaborador", "Tipo", "Data/Hora", "Latitude", "Longitude"]
+    col_widths = [60, 50, 65, 50, 52] # Total = 277 mm
+    headers = ["Colaborador", "Tipo de Batida", "Data e Hora", "Latitude", "Longitude"]
     
     for i, h in enumerate(headers):
         pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
@@ -86,13 +85,12 @@ def gerar_pdf(df):
         pdf.cell(col_widths[4], 7, str(row["Longitude"]), border=1, align="center")
         pdf.ln()
         
-    # Retorna o PDF em bytes para o Streamlit
     return bytes(pdf.output())
 
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Menu principal (Padrão abre em Bater Ponto)
+# Menu principal (Inicia direto na aba de bater ponto)
 st.sidebar.image("https://img.icons8.com/color/96/map-pin.png", width=80)
 st.sidebar.title("Sistema de Ponto")
 menu = st.sidebar.selectbox(
@@ -101,16 +99,21 @@ menu = st.sidebar.selectbox(
 )
 
 if menu == "1. Bater Ponto (Celular)":
-    st.title("📱 Registro de Ponto com Geolocalização")
-    st.markdown("O sistema captura sua posição atual via GPS no **Horário do Brasil**.")
+    st.title("📱 Registro de Ponto (4 Batidas Diárias)")
+    st.markdown("Horários de referência: **Entrada (07:42)** | **Saída Refeição (12:00)** | **Volta Refeição (13:00)** | **Saída (17:30)**. *Você pode bater em qualquer horário livre.*")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
     else:
         colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
-        tipo_batida = st.selectbox("Tipo de Registro", ["Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
+        
+        # As 4 opções exatas solicitadas
+        tipo_batida = st.selectbox(
+            "Tipo de Registro", 
+            ["Entrada (Ref: 07:42)", "Saída Refeição (Ref: 12:00)", "Volta Refeição (Ref: 13:00)", "Saída (Ref: 17:30)"]
+        )
 
-        st.info("👇 Permita o acesso à localização no navegador para registrar o ponto.")
+        st.info("👇 Permita o acesso à localização no navegador para registrar o ponto com GPS.")
 
         geo_html = """
         <!DOCTYPE html>
@@ -209,19 +212,19 @@ elif menu == "2. Cadastrar Funcionários":
 
 elif menu == "3. Dashboard Gerencial (RH)":
     st.title("📊 Painel de Controle - Registros e Relatórios")
-    st.markdown("Acompanhe o histórico de marcações, visualize no mapa e exporte em PDF organizado por data.")
+    st.markdown("Acompanhe o histórico de marcações, visualize no mapa e exporte em **PDF Paisagem** organizado por data.")
 
     df_reg = st.session_state.registros_ponto if "registros_ponto" in locals() else df_reg
 
     if df_reg.empty:
         st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
     else:
-        # Botão de Exportação para PDF
-        pdf_bytes = gerar_pdf(df_reg)
+        # Botão de Exportação para PDF em Modo Paisagem
+        pdf_bytes = gerar_pdf_paisagem(df_reg)
         st.download_button(
-            label="📄 Baixar Relatório em PDF (Organizado por Data)",
+            label="📄 Baixar Relatório em PDF (Modo Paisagem / Organizado por Data)",
             data=pdf_bytes,
-            file_name=f"relatorio_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
+            file_name=f"relatorio_ponto_paisagem_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
             type="primary"
         )
