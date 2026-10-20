@@ -3,13 +3,15 @@ import pandas as pd
 import json
 import os
 from datetime import datetime, timezone, timedelta
+from io import BytesIO
+from fpdf import FPDF
 
 # Configuração do Fuso Horário de Brasília (UTC-3)
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 # Configuração da página
 st.set_page_config(
-    page_title="Sistema de Ponto",
+    page_title="Sistema de Ponto com PDF",
     page_icon="📍",
     layout="wide"
 )
@@ -40,14 +42,57 @@ def salvar_colaboradores(colaboradores):
         json.dump(colaboradores, f, ensure_ascii=False, indent=4)
 
 def salvar_registros(df_registros):
-    df_registros.to_dict(orient="records")
     with open(ARQUIVO_REGISTROS, "w", encoding="utf-8") as f:
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
+
+# Função para gerar o PDF organizado por data
+def gerar_pdf(df):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    
+    # Cabeçalho do Relatório
+    pdf.set_font("helvetica", "B", 16)
+    pdf.cell(0, 10, "Relatorio de Espelho de Ponto", ln=True, align="center")
+    
+    pdf.set_font("helvetica", "", 10)
+    gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
+    pdf.cell(0, 8, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
+    pdf.ln(10)
+    
+    # Ordenar por data/hora se houver registros
+    if not df.empty and "Data/Hora" in df.columns:
+        df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        df = df.sort_values(by="DataObj", ascending=True)
+
+    # Tabela no PDF
+    pdf.set_font("helvetica", "B", 10)
+    pdf.set_fill_color(220, 220, 220)
+    
+    # Larguras das colunas
+    col_widths = [35, 30, 45, 40, 40]
+    headers = ["Colaborador", "Tipo", "Data/Hora", "Latitude", "Longitude"]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
+    pdf.ln()
+    
+    pdf.set_font("helvetica", "", 9)
+    for _, row in df.iterrows():
+        pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
+        pdf.cell(col_widths[1], 7, str(row["Tipo"]), border=1, align="center")
+        pdf.cell(col_widths[2], 7, str(row["Data/Hora"]), border=1, align="center")
+        pdf.cell(col_widths[3], 7, str(row["Latitude"]), border=1, align="center")
+        pdf.cell(col_widths[4], 7, str(row["Longitude"]), border=1, align="center")
+        pdf.ln()
+        
+    # Retorna o PDF em bytes para o Streamlit
+    return bytes(pdf.output())
 
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Menu principal (O padrão agora inicia na aba de Bater Ponto)
+# Menu principal (Padrão abre em Bater Ponto)
 st.sidebar.image("https://img.icons8.com/color/96/map-pin.png", width=80)
 st.sidebar.title("Sistema de Ponto")
 menu = st.sidebar.selectbox(
@@ -57,7 +102,7 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto com Geolocalização")
-    st.markdown("O sistema captura sua posição atual via GPS de onde você estiver no **Horário do Brasil**.")
+    st.markdown("O sistema captura sua posição atual via GPS no **Horário do Brasil**.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
@@ -67,7 +112,6 @@ if menu == "1. Bater Ponto (Celular)":
 
         st.info("👇 Permita o acesso à localização no navegador para registrar o ponto.")
 
-        # HTML/JS para capturar a geolocalização do navegador
         geo_html = """
         <!DOCTYPE html>
         <html>
@@ -121,15 +165,12 @@ if menu == "1. Bater Ponto (Celular)":
         """
         
         st.components.v1.html(geo_html, height=350)
-
         st.divider()
 
-        # Coordenadas automáticas ou manuais para teste
         lat_input = st.number_input("Latitude Capturada", value=-23.55052, format="%.5f")
         lon_input = st.number_input("Longitude Capturada", value=-46.63331, format="%.5f")
 
         if st.button("🟢 Confirmar e Bater Ponto", type="primary"):
-            # Pega a data e hora atual baseada no fuso de Brasília (UTC-3)
             agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
             
             novo_registro = pd.DataFrame([{
@@ -167,12 +208,25 @@ elif menu == "2. Cadastrar Funcionários":
     st.write(lista_colab)
 
 elif menu == "3. Dashboard Gerencial (RH)":
-    st.title("📊 Painel de Controle - Registros e Mapas")
-    st.markdown("Acompanhe o histórico de marcações salvas no arquivo JSON e os locais das batidas.")
+    st.title("📊 Painel de Controle - Registros e Relatórios")
+    st.markdown("Acompanhe o histórico de marcações, visualize no mapa e exporte em PDF organizado por data.")
+
+    df_reg = st.session_state.registros_ponto if "registros_ponto" in locals() else df_reg
 
     if df_reg.empty:
         st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
     else:
+        # Botão de Exportação para PDF
+        pdf_bytes = gerar_pdf(df_reg)
+        st.download_button(
+            label="📄 Baixar Relatório em PDF (Organizado por Data)",
+            data=pdf_bytes,
+            file_name=f"relatorio_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
+            mime="application/pdf",
+            type="primary"
+        )
+
+        st.divider()
         st.subheader("📋 Histórico de Marcações")
         st.dataframe(df_reg, use_container_width=True)
 
