@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import requests
 from datetime import datetime, timezone, timedelta
 from fpdf import FPDF
 
@@ -19,6 +20,19 @@ st.set_page_config(
 ARQUIVO_COLABORADORES = "colaboradores.json"
 ARQUIVO_REGISTROS = "registros_ponto.json"
 
+# Função para converter Latitude e Longitude em Endereço amigável
+def obter_endereco(lat, lon):
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1"
+        headers = {'User-Agent': 'SistemaPontoApp/1.0'}
+        response = requests.get(url, headers=headers, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("display_name", f"Lat: {lat}, Lon: {lon}")
+    except Exception:
+        pass
+    return f"Lat: {lat}, Lon: {lon}"
+
 # Funções para carregar e salvar dados em JSON
 def carregar_dados_json():
     if os.path.exists(ARQUIVO_COLABORADORES):
@@ -32,7 +46,7 @@ def carregar_dados_json():
             registros = json.load(f)
         df_registros = pd.DataFrame(registros)
     else:
-        df_registros = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude"])
+        df_registros = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude", "Endereco"])
 
     return colaboradores, df_registros
 
@@ -47,7 +61,7 @@ def salvar_registros(df_registros):
 def consolidar_por_dia(df):
     """Transforma registros individuais em uma linha por dia com as 4 batidas"""
     if df.empty:
-        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Intervalo", "Entrada", "Saída", "Latitude", "Longitude"])
+        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída", "Localização / Endereço"])
     
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -63,8 +77,7 @@ def consolidar_por_dia(df):
             "Saída Intervalo": "-",
             "Retorno Intervalo": "-",
             "Saída": "-",
-            "Latitude": group.iloc[0]["Latitude"] if not group.empty else "-",
-            "Longitude": group.iloc[0]["Longitude"] if not group.empty else "-"
+            "Localização / Endereço": group.iloc[0]["Endereco"] if "Endereco" in group.columns and not group.empty else "-"
         }
         
         for _, row in group.iterrows():
@@ -84,14 +97,15 @@ def consolidar_por_dia(df):
         
     return pd.DataFrame(linhas_consolidadas)
 
-# Função para gerar o PDF em MODO PAISAGEM (Horizontal) consolidado por dia
+# Função para gerar o PDF em MODO PAISAGEM sem o título "Jornada de 4 Registros" e com endereços/coordenadas
 def gerar_pdf_paisagem(df_consolidado):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
+    # Cabeçalho limpo sem citação indesejada
     pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, "Relatorio de Espelho de Ponto - Jornada de 4 Registros", ln=True, align="center")
+    pdf.cell(0, 10, "Relatorio de Espelho de Ponto", ln=True, align="center")
     
     pdf.set_font("helvetica", "", 10)
     gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
@@ -101,14 +115,15 @@ def gerar_pdf_paisagem(df_consolidado):
     pdf.set_font("helvetica", "B", 9)
     pdf.set_fill_color(220, 220, 220)
     
-    col_widths = [55, 28, 35, 38, 38, 35, 24, 24]
-    headers = ["Colaborador", "Data", "Entrada", "Saída Int.", "Retorno Int.", "Saída", "Lat", "Lon"]
+    # Larguras ajustadas para acomodar o endereço/localização (Total = 277 mm)
+    col_widths = [50, 25, 25, 27, 27, 25, 98]
+    headers = ["Colaborador", "Data", "Entrada", "Saída Int.", "Retorno Int.", "Saída", "Endereço / Coordenada do Local"]
     
     for i, h in enumerate(headers):
         pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 8)
+    pdf.set_font("helvetica", "", 7.5)
     for _, row in df_consolidado.iterrows():
         pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
         pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
@@ -116,8 +131,12 @@ def gerar_pdf_paisagem(df_consolidado):
         pdf.cell(col_widths[3], 7, str(row["Saída Intervalo"]), border=1, align="center")
         pdf.cell(col_widths[4], 7, str(row["Retorno Intervalo"]), border=1, align="center")
         pdf.cell(col_widths[5], 7, str(row["Saída"]), border=1, align="center")
-        pdf.cell(col_widths[6], 7, str(row["Latitude"]), border=1, align="center")
-        pdf.cell(col_widths[7], 7, str(row["Longitude"]), border=1, align="center")
+        
+        # Tratamento de quebra de texto para o endereço caber perfeitamente na célula
+        endereco_texto = str(row["Localização / Endereço"])
+        if len(endereco_texto) > 75:
+            endereco_texto = endereco_texto[:72] + "..."
+        pdf.cell(col_widths[6], 7, endereco_texto, border=1)
         pdf.ln()
         
     return bytes(pdf.output())
@@ -134,7 +153,7 @@ menu = st.sidebar.selectbox(
 )
 
 if menu == "1. Bater Ponto (Celular)":
-    st.title("📱 Registro de Ponto (4 Batidas Diárias)")
+    st.title("📱 Registro de Ponto")
     st.markdown("Selecione o tipo de registro desejado e confirme com sua geolocalização.")
 
     if not lista_colab:
@@ -142,7 +161,7 @@ if menu == "1. Bater Ponto (Celular)":
     else:
         colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
         
-        # Opções solicitadas: Entrada, Saída Intervalo, Entrada (Retorno) e Saída
+        # Opções solicitadas: Entrada, Saída Intervalo, Retorno Intervalo e Saída
         tipo_batida = st.selectbox(
             "Tipo de Registro", 
             ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
@@ -242,6 +261,10 @@ if menu == "1. Bater Ponto (Celular)":
             data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
             hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
             
+            # Obtém o endereço amigável correspondente à geolocalização
+            with st.spinner("Buscando endereço correspondente à localização GPS..."):
+                endereco_encontrado = obter_endereco(lat_input, lon_input)
+            
             novo_registro = pd.DataFrame([{
                 "Colaborador": colaborador_atual,
                 "Tipo": tipo_batida,
@@ -249,13 +272,14 @@ if menu == "1. Bater Ponto (Celular)":
                 "Data": data_atual,
                 "Hora": hora_atual,
                 "Latitude": lat_input,
-                "Longitude": lon_input
+                "Longitude": lon_input,
+                "Endereco": endereco_encontrado
             }])
             
             df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
             salvar_registros(df_reg)
             
-            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!")
+            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
             st.balloons()
 
 elif menu == "2. Cadastrar Funcionários":
@@ -349,7 +373,7 @@ elif menu == "3. Dashboard Gerencial (RH)":
                 
                 st.markdown("---")
                 if st.button("⚠️ Apagar TODOS os Registros do Sistema", type="primary"):
-                    df_reg = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude"])
+                    df_reg = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude", "Endereco"])
                     salvar_registros(df_reg)
                     st.warning("Todos os registros foram apagados permanentemente.")
                     st.rerun()
