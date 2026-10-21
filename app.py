@@ -120,7 +120,7 @@ def consolidar_por_dia_duas_linhas(df):
         
     return pd.DataFrame(linhas_consolidadas)
 
-# Função para gerar o PDF em MODO PAISAGEM com 2 linhas por dia e links clicáveis para o Google Maps
+# Função para gerar o PDF em MODO PAISAGEM com 2 linhas por dia e links reais para o Google Maps
 def gerar_pdf_paisagem_links(df_duas_linhas):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=10)
@@ -137,7 +137,6 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
     pdf.set_font("helvetica", "B", 8)
     pdf.set_fill_color(220, 220, 220)
     
-    # Larguras totais = 277 mm
     col_widths = [45, 22, 28, 16, 75, 28, 16, 47]
     headers = ["Colaborador", "Data", "1ª Batida", "Hora", "Local / Link Google Maps (Batida 1)", "2ª Batida", "Hora", "Local / Link Google Maps (Batida 2)"]
     
@@ -160,9 +159,9 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
             link1 = f"https://maps.google.com/?q={latlon1[0]},{latlon1[1]}"
             if len(local1) > 50:
                 local1 = local1[:47] + "..."
-            pdf.set_text_color(0, 0, 255) # Azul para indicar link
+            pdf.set_text_color(0, 0, 255)
             pdf.cell(col_widths[4], 6, local1, border=1, link=link1)
-            pdf.set_text_color(0, 0, 0)   # Reseta cor
+            pdf.set_text_color(0, 0, 0)
         else:
             pdf.cell(col_widths[4], 6, "-", border=1, align="center")
         
@@ -199,7 +198,7 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto")
-    st.markdown("Selecione o tipo de registro desejado e confirme com sua geolocalização.")
+    st.markdown("Selecione o tipo de registro desejado e aguarde a captura do seu GPS.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
@@ -227,12 +226,12 @@ if menu == "1. Bater Ponto (Celular)":
         </head>
         <body>
             <div class="info-box">
-                <p id="status" style="margin:0; font-weight: bold; color: #0066cc;">Obtendo sua localização via GPS...</p>
+                <p id="status" style="margin:0; font-weight: bold; color: #0066cc;">Obtendo sua localização real via GPS...</p>
             </div>
             <div id="map"></div>
 
             <script>
-                var map = L.map('map').setView([-15.788497, -47.879873], 4);
+                var map = L.map('map').setView([0, 0], 2);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© OpenStreetMap'
                 }).addTo(map);
@@ -269,15 +268,15 @@ if menu == "1. Bater Ponto (Celular)":
                         marker = L.marker([userLat, userLon]).addTo(map)
                             .bindPopup("<b>Você está aqui</b>").openPopup();
 
-                        document.getElementById("status").innerHTML = "✅ Localização obtida com sucesso! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
+                        document.getElementById("status").innerHTML = "✅ Localização real obtida! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
                         document.getElementById("status").style.color = "green";
 
                         setStreamlitValue(userLat, userLon);
 
                     }, function(error) {
-                        document.getElementById("status").innerHTML = "⚠️ Ative o GPS no seu celular para registrar a localização.";
+                        document.getElementById("status").innerHTML = "⚠️ Ative o GPS no seu celular para registrar a localização exata.";
                         document.getElementById("status").style.color = "orange";
-                    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
                 } else {
                     document.getElementById("status").innerHTML = "Seu navegador não suporta geolocalização.";
                 }
@@ -289,10 +288,11 @@ if menu == "1. Bater Ponto (Celular)":
         st.components.v1.html(geo_html, height=330)
         st.divider()
 
+        # Inicializa com valores vazios/neutros para obrigar a captação real
         if "lat_val" not in st.session_state:
-            st.session_state.lat_val = -23.55052
+            st.session_state.lat_val = 0.0
         if "lon_val" not in st.session_state:
-            st.session_state.lon_val = -46.63331
+            st.session_state.lon_val = 0.0
 
         col1, col2 = st.columns(2)
         with col1:
@@ -301,29 +301,32 @@ if menu == "1. Bater Ponto (Celular)":
             lon_input = st.number_input("Longitude Capturada", value=st.session_state.lon_val, format="%.5f")
 
         if st.button("🟢 Confirmar e Bater Ponto", type="primary"):
-            agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
-            data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
-            hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
-            
-            with st.spinner("Buscando endereço correspondente à localização GPS..."):
-                endereco_encontrado = obter_endereco(lat_input, lon_input)
-            
-            novo_registro = pd.DataFrame([{
-                "Colaborador": colaborador_atual,
-                "Tipo": tipo_batida,
-                "Data/Hora": agora,
-                "Data": data_atual,
-                "Hora": hora_atual,
-                "Latitude": lat_input,
-                "Longitude": lon_input,
-                "Endereco": endereco_encontrado
-            }])
-            
-            df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
-            salvar_registros(df_reg)
-            
-            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
-            st.balloons()
+            if lat_input == 0.0 and lon_input == 0.0:
+                st.error("⚠️ Aguarde a geolocalização do GPS ser obtida antes de confirmar o ponto.")
+            else:
+                agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
+                data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
+                hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
+                
+                with st.spinner("Buscando endereço correspondente à sua localização GPS..."):
+                    endereco_encontrado = obter_endereco(lat_input, lon_input)
+                
+                novo_registro = pd.DataFrame([{
+                    "Colaborador": colaborador_atual,
+                    "Tipo": tipo_batida,
+                    "Data/Hora": agora,
+                    "Data": data_atual,
+                    "Hora": hora_atual,
+                    "Latitude": lat_input,
+                    "Longitude": lon_input,
+                    "Endereco": endereco_encontrado
+                }])
+                
+                df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
+                salvar_registros(df_reg)
+                
+                st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
+                st.balloons()
 
 elif menu == "2. Cadastrar Funcionários":
     st.title("👤 Cadastro de Colaboradores")
@@ -392,7 +395,6 @@ elif menu == "3. Dashboard Gerencial (RH)":
             df_mapa = df_mapa[df_mapa["Colaborador"] == filtro_colab]
         st.map(df_mapa[["lat", "lon"]])
 
-        # Seção protegida por senha de Administrador para apagar/consertar registros
         st.divider()
         st.subheader("🔐 Área Administrativa (Correção e Exclusão)")
         
