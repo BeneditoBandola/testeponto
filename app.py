@@ -188,9 +188,15 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Menu principal
+# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário no Topo
 st.sidebar.image("https://img.icons8.com/color/96/map-pin.png", width=80)
 st.sidebar.title("Sistema de Ponto")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("👤 Usuário Ativo")
+colaborador_atual = st.sidebar.selectbox("Selecione quem está usando:", lista_colab, index=0)
+
+st.sidebar.markdown("---")
 menu = st.sidebar.selectbox(
     "Navegação", 
     ["1. Bater Ponto (Celular)", "2. Cadastrar Funcionários", "3. Dashboard Gerencial (RH)"]
@@ -198,13 +204,11 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto")
-    st.markdown("Selecione o tipo de registro desejado. A geolocalização do seu GPS será capturada automaticamente.")
+    st.markdown(f"Colaborador selecionado: **{colaborador_atual}**. Selecione o tipo de registro abaixo. A geolocalização do seu GPS será capturada automaticamente.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
     else:
-        colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
-        
         tipo_batida = st.selectbox(
             "Tipo de Registro", 
             ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
