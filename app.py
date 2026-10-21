@@ -49,14 +49,12 @@ def consolidar_por_dia(df):
     if df.empty:
         return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Refeição", "Volta Refeição", "Saída", "Latitude", "Longitude"])
     
-    # Garante colunas de Data e Hora se não existirem
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
         df["Data"] = df["DataObj"].dt.strftime("%d/%m/%Y")
         df["Hora"] = df["DataObj"].dt.strftime("%H:%M:%S")
 
     linhas_consolidadas = []
-    # Agrupa por Colaborador e Data
     for (colab, data), group in df.groupby(["Colaborador", "Data"]):
         registro_dia = {
             "Colaborador": colab,
@@ -91,7 +89,6 @@ def gerar_pdf_paisagem(df_consolidado):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    # Cabeçalho do Relatório
     pdf.set_font("helvetica", "B", 16)
     pdf.cell(0, 10, "Relatorio de Espelho de Ponto - Jornada de 4 Registros", ln=True, align="center")
     
@@ -100,11 +97,10 @@ def gerar_pdf_paisagem(df_consolidado):
     pdf.cell(0, 8, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
     pdf.ln(10)
 
-    # Tabela no PDF (A4 Paisagem tem largura útil de cerca de 277mm)
     pdf.set_font("helvetica", "B", 9)
     pdf.set_fill_color(220, 220, 220)
     
-    col_widths = [55, 28, 35, 38, 38, 35, 24, 24] # Total = 277 mm
+    col_widths = [55, 28, 35, 38, 38, 35, 24, 24]
     headers = ["Colaborador", "Data", "Entrada", "Saída Ref.", "Volta Ref.", "Saída", "Lat", "Lon"]
     
     for i, h in enumerate(headers):
@@ -151,7 +147,6 @@ if menu == "1. Bater Ponto (Celular)":
 
         st.info("👇 Permita o acesso à localização no navegador para registrar o ponto com GPS.")
 
-        # JavaScript para capturar geolocalização e injetar automaticamente nos inputs invisíveis / visíveis
         geo_html = """
         <!DOCTYPE html>
         <html>
@@ -179,11 +174,9 @@ if menu == "1. Bater Ponto (Celular)":
                 var marker;
 
                 function setStreamlitValue(lat, lon) {
-                    // Comunicação com os inputs do Streamlit via parent document
                     const doc = window.parent.document;
                     const inputs = doc.querySelectorAll('input[type="number"]');
                     inputs.forEach(input => {
-                        // Procura pelos inputs de número da latitude e longitude baseados em seus valores padrão ou labels
                         if (input.getAttribute('aria-label') && input.getAttribute('aria-label').includes('Latitude')) {
                             setInputValue(input, lat);
                         }
@@ -213,7 +206,6 @@ if menu == "1. Bater Ponto (Celular)":
                         document.getElementById("status").innerHTML = "✅ Localização obtida com sucesso! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
                         document.getElementById("status").style.color = "green";
 
-                        // Envia para os inputs do Streamlit
                         setStreamlitValue(userLat, userLon);
 
                     }, function(error) {
@@ -231,7 +223,6 @@ if menu == "1. Bater Ponto (Celular)":
         st.components.v1.html(geo_html, height=330)
         st.divider()
 
-        # Armazena em session_state para persistir os valores capturados pelo JS automaticamente
         if "lat_val" not in st.session_state:
             st.session_state.lat_val = -23.55052
         if "lon_val" not in st.session_state:
@@ -291,7 +282,6 @@ elif menu == "3. Dashboard Gerencial (RH)":
     if df_reg.empty:
         st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
     else:
-        # Criação do dataframe consolidado por dia (uma linha por dia com 4 batidas)
         df_consolidado = consolidar_por_dia(df_reg)
 
         st.subheader("🔍 Filtros de Busca")
@@ -302,11 +292,9 @@ elif menu == "3. Dashboard Gerencial (RH)":
             filtro_colab = st.selectbox("Filtrar por Colaborador:", colaboradores_filtro)
             
         with col_f2:
-            # Opção de filtro por data
             datas_disponiveis = sorted(list(df_consolidado["Data"].unique()))
             filtro_data = st.selectbox("Filtrar por Data Específica:", ["Todas"] + datas_disponiveis)
 
-        # Aplicando os filtros
         df_filtrado = df_consolidado.copy()
         if filtro_colab != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Colaborador"] == filtro_colab]
@@ -315,7 +303,6 @@ elif menu == "3. Dashboard Gerencial (RH)":
 
         st.divider()
 
-        # Botão de Exportação para PDF em Modo Paisagem com base nos dados filtrados
         pdf_bytes = gerar_pdf_paisagem(df_filtrado)
         st.download_button(
             label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem)",
@@ -330,8 +317,41 @@ elif menu == "3. Dashboard Gerencial (RH)":
         st.dataframe(df_filtrado, use_container_width=True)
 
         st.subheader("🗺️ Mapa dos Locais de Batida de Ponto")
-        # Prepara dataframe para o mapa do streamlit
         df_mapa = df_reg.rename(columns={"Latitude": "lat", "Longitude": "lon"})
         if filtro_colab != "Todos":
             df_mapa = df_mapa[df_mapa["Colaborador"] == filtro_colab]
         st.map(df_mapa[["lat", "lon"]])
+
+        # Seção protegida por senha de Administrador para apagar/consertar registros
+        st.divider()
+        st.subheader("🔐 Área Administrativa (Correção e Exclusão)")
+        
+        with st.expander("Clique aqui para acessar as ferramentas de Administrador (Senha necessária)"):
+            senha_admin = st.text_input("Senha de Administrador:", type="password")
+            
+            if senha_admin == "1234":
+                st.success("✅ Acesso de administrador autorizado!")
+                
+                # Exibe tabela bruta original completa para edição/exclusão detalhada
+                st.markdown("### Tabela Bruta de Registros (Para exclusão individual)")
+                st.dataframe(df_reg, use_container_width=True)
+                
+                # Selecionar um índice da tabela bruta para apagar
+                if not df_reg.empty:
+                    indice_para_apagar = st.number_input("Digite o Índice (ID da linha) do registro que deseja apagar:", min_value=0, max_value=len(df_reg)-1, step=1)
+                    
+                    if st.button("🗑️ Excluir Registro Selecionado", type="secondary"):
+                        df_reg = df_reg.drop(indice_para_apagar).reset_index(drop=True)
+                        salvar_registros(df_reg)
+                        st.success(f"Registro do índice {indice_para_apagar} excluído com sucesso! Recarregue a página se necessário.")
+                        st.rerun()
+                
+                st.markdown("---")
+                if st.button("⚠️ Apagar TODOS os Registros do Sistema", type="primary"):
+                    df_reg = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude"])
+                    salvar_registros(df_reg)
+                    st.warning("Todos os registros foram apagados permanentemente.")
+                    st.rerun()
+                    
+            elif senha_admin != "":
+                st.error("❌ Senha incorreta. Digite '1234'.")
