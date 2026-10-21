@@ -58,16 +58,10 @@ def salvar_registros(df_registros):
     with open(ARQUIVO_REGISTROS, "w", encoding="utf-8") as f:
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
-def consolidar_por_dia(df):
-    """Transforma registros individuais em uma linha por dia com as 4 batidas e seus respectivos locais"""
+def consolidar_por_dia_duas_linhas(df):
+    """Transforma registros individuais em 2 linhas por dia (Linha 1: Entrada/Saída Int | Linha 2: Retorno/Saída)"""
     if df.empty:
-        return pd.DataFrame(columns=[
-            "Colaborador", "Data", 
-            "Entrada", "Local Entrada", 
-            "Saída Int.", "Local Saída Int.", 
-            "Retorno Int.", "Local Retorno Int.", 
-            "Saída", "Local Saída"
-        ])
+        return pd.DataFrame(columns=["Colaborador", "Data", "Período", "Batida 1 (Tipo)", "Hora 1", "Local 1", "Lat1", "Lon1", "Batida 2 (Tipo)", "Hora 2", "Local 2", "Lat2", "Lon2"])
     
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -76,43 +70,58 @@ def consolidar_por_dia(df):
 
     linhas_consolidadas = []
     for (colab, data), group in df.groupby(["Colaborador", "Data"]):
-        registro_dia = {
-            "Colaborador": colab,
-            "Data": data,
-            "Entrada": "-", "Local Entrada": "-",
-            "Saída Int.": "-", "Local Saída Int.": "-",
-            "Retorno Int.": "-", "Local Retorno Int.": "-",
-            "Saída": "-", "Local Saída": "-"
-        }
+        entrada_reg, saida_int_reg, ret_int_reg, saida_reg = None, None, None, None
         
         for _, row in group.iterrows():
             tipo = row["Tipo"]
-            hora = row["Hora"]
-            end = row.get("Endereco", f"Lat: {row['Latitude']}, Lon: {row['Longitude']}")
-            
             if tipo == "Entrada":
-                if registro_dia["Entrada"] == "-":
-                    registro_dia["Entrada"] = hora
-                    registro_dia["Local Entrada"] = end
+                if entrada_reg is None:
+                    entrada_reg = row
                 else:
-                    registro_dia["Retorno Int."] = hora
-                    registro_dia["Local Retorno Int."] = end
+                    ret_int_reg = row
             elif tipo == "Saída Intervalo":
-                registro_dia["Saída Int."] = hora
-                registro_dia["Local Saída Int."] = end
+                saida_int_reg = row
             elif tipo == "Retorno Intervalo":
-                registro_dia["Retorno Int."] = hora
-                registro_dia["Local Retorno Int."] = end
+                ret_int_reg = row
             elif tipo == "Saída":
-                registro_dia["Saída"] = hora
-                registro_dia["Local Saída"] = end
-                
-        linhas_consolidadas.append(registro_dia)
+                saida_reg = row
+
+        # Linha 1: Entrada e Saída Intervalo
+        linhas_consolidadas.append({
+            "Colaborador": colab,
+            "Data": data,
+            "Turno": "Manhã / Início",
+            "Tipo1": "Entrada",
+            "Hora1": entrada_reg["Hora"] if entrada_reg is not None else "-",
+            "Local1": entrada_reg["Endereco"] if entrada_reg is not None else "-",
+            "LatLon1": (entrada_reg["Latitude"], entrada_reg["Longitude"]) if entrada_reg is not None else None,
+            
+            "Tipo2": "Saída Intervalo",
+            "Hora2": saida_int_reg["Hora"] if saida_int_reg is not None else "-",
+            "Local2": saida_int_reg["Endereco"] if saida_int_reg is not None else "-",
+            "LatLon2": (saida_int_reg["Latitude"], saida_int_reg["Longitude"]) if saida_int_reg is not None else None
+        })
+
+        # Linha 2: Retorno Intervalo e Saída
+        linhas_consolidadas.append({
+            "Colaborador": colab,
+            "Data": data,
+            "Turno": "Tarde / Fim",
+            "Tipo1": "Retorno Intervalo",
+            "Hora1": ret_int_reg["Hora"] if ret_int_reg is not None else "-",
+            "Local1": ret_int_reg["Endereco"] if ret_int_reg is not None else "-",
+            "LatLon1": (ret_int_reg["Latitude"], ret_int_reg["Longitude"]) if ret_int_reg is not None else None,
+            
+            "Tipo2": "Saída",
+            "Hora2": saida_reg["Hora"] if saida_reg is not None else "-",
+            "Local2": saida_reg["Endereco"] if saida_reg is not None else "-",
+            "LatLon2": (saida_reg["Latitude"], saida_reg["Longitude"]) if saida_reg is not None else None
+        })
         
     return pd.DataFrame(linhas_consolidadas)
 
-# Função para gerar o PDF em MODO PAISAGEM com endereço próprio por batida
-def gerar_pdf_paisagem(df_consolidado):
+# Função para gerar o PDF em MODO PAISAGEM com 2 linhas por dia e links clicáveis para o Google Maps
+def gerar_pdf_paisagem_links(df_duas_linhas):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
@@ -128,30 +137,51 @@ def gerar_pdf_paisagem(df_consolidado):
     pdf.set_font("helvetica", "B", 8)
     pdf.set_fill_color(220, 220, 220)
     
-    # Larguras otimizadas para caber na página A4 Paisagem (Total = 277 mm)
-    col_widths = [40, 22, 17, 39, 17, 39, 17, 39, 17, 31]
-    headers = ["Colab.", "Data", "Ent.", "Local Ent.", "Saída I.", "Local S.I.", "Ret. I.", "Local R.I.", "Saída", "Local Saída"]
+    # Larguras totais = 277 mm
+    col_widths = [45, 22, 28, 16, 75, 28, 16, 47]
+    headers = ["Colaborador", "Data", "1ª Batida", "Hora", "Local / Link Google Maps (Batida 1)", "2ª Batida", "Hora", "Local / Link Google Maps (Batida 2)"]
     
     for i, h in enumerate(headers):
         pdf.cell(col_widths[i], 7, h, border=1, fill=True, align="center")
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 7)
-    for _, row in df_consolidado.iterrows():
+    pdf.set_font("helvetica", "", 7.5)
+    for _, row in df_duas_linhas.iterrows():
         pdf.cell(col_widths[0], 6, str(row["Colaborador"]), border=1)
         pdf.cell(col_widths[1], 6, str(row["Data"]), border=1, align="center")
         
-        pdf.cell(col_widths[2], 6, str(row["Entrada"]), border=1, align="center")
-        pdf.cell(col_widths[3], 6, str(row["Local Entrada"])[:32], border=1)
+        # Batida 1
+        pdf.cell(col_widths[2], 6, str(row["Tipo1"]), border=1, align="center")
+        pdf.cell(col_widths[3], 6, str(row["Hora1"]), border=1, align="center")
         
-        pdf.cell(col_widths[4], 6, str(row["Saída Int."]), border=1, align="center")
-        pdf.cell(col_widths[5], 6, str(row["Local Saída Int."])[:32], border=1)
+        local1 = str(row["Local1"])
+        latlon1 = row["LatLon1"]
+        if latlon1 and latlon1[0] is not None:
+            link1 = f"https://maps.google.com/?q={latlon1[0]},{latlon1[1]}"
+            if len(local1) > 50:
+                local1 = local1[:47] + "..."
+            pdf.set_text_color(0, 0, 255) # Azul para indicar link
+            pdf.cell(col_widths[4], 6, local1, border=1, link=link1)
+            pdf.set_text_color(0, 0, 0)   # Reseta cor
+        else:
+            pdf.cell(col_widths[4], 6, "-", border=1, align="center")
         
-        pdf.cell(col_widths[6], 6, str(row["Retorno Int."]), border=1, align="center")
-        pdf.cell(col_widths[7], 6, str(row["Local Retorno Int."])[:32], border=1)
+        # Batida 2
+        pdf.cell(col_widths[5], 6, str(row["Tipo2"]), border=1, align="center")
+        pdf.cell(col_widths[6], 6, str(row["Hora2"]), border=1, align="center")
         
-        pdf.cell(col_widths[8], 6, str(row["Saída"]), border=1, align="center")
-        pdf.cell(col_widths[9], 6, str(row["Local Saída"])[:25], border=1)
+        local2 = str(row["Local2"])
+        latlon2 = row["LatLon2"]
+        if latlon2 and latlon2[0] is not None:
+            link2 = f"https://maps.google.com/?q={latlon2[0]},{latlon2[1]}"
+            if len(local2) > 30:
+                local2 = local2[:27] + "..."
+            pdf.set_text_color(0, 0, 255)
+            pdf.cell(col_widths[7], 6, local2, border=1, link=link2)
+            pdf.set_text_color(0, 0, 0)
+        else:
+            pdf.cell(col_widths[7], 6, "-", border=1, align="center")
+            
         pdf.ln()
         
     return bytes(pdf.output())
@@ -322,20 +352,20 @@ elif menu == "3. Dashboard Gerencial (RH)":
     if df_reg.empty:
         st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
     else:
-        df_consolidado = consolidar_por_dia(df_reg)
+        df_duas_linhas = consolidar_por_dia_duas_linhas(df_reg)
 
         st.subheader("🔍 Filtros de Busca")
         col_f1, col_f2 = st.columns(2)
         
         with col_f1:
-            colaboradores_filtro = ["Todos"] + sorted(list(df_consolidado["Colaborador"].unique()))
+            colaboradores_filtro = ["Todos"] + sorted(list(df_duas_linhas["Colaborador"].unique()))
             filtro_colab = st.selectbox("Filtrar por Colaborador:", colaboradores_filtro)
             
         with col_f2:
-            datas_disponiveis = sorted(list(df_consolidado["Data"].unique()))
+            datas_disponiveis = sorted(list(df_duas_linhas["Data"].unique()))
             filtro_data = st.selectbox("Filtrar por Data Específica:", ["Todas"] + datas_disponiveis)
 
-        df_filtrado = df_consolidado.copy()
+        df_filtrado = df_duas_linhas.copy()
         if filtro_colab != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Colaborador"] == filtro_colab]
         if filtro_data != "Todas":
@@ -343,9 +373,9 @@ elif menu == "3. Dashboard Gerencial (RH)":
 
         st.divider()
 
-        pdf_bytes = gerar_pdf_paisagem(df_filtrado)
+        pdf_bytes = gerar_pdf_paisagem_links(df_filtrado)
         st.download_button(
-            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem)",
+            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem com Links do Maps)",
             data=pdf_bytes,
             file_name=f"espelho_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
@@ -353,7 +383,7 @@ elif menu == "3. Dashboard Gerencial (RH)":
         )
 
         st.divider()
-        st.subheader("📋 Espelho de Ponto Consolidado (1 Linha por Dia)")
+        st.subheader("📋 Espelho de Ponto (2 Linhas por Dia)")
         st.dataframe(df_filtrado, use_container_width=True)
 
         st.subheader("🗺️ Mapa dos Locais de Batida de Ponto")
