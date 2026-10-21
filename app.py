@@ -33,13 +33,13 @@ def obter_endereco(lat, lon):
         pass
     return f"Lat: {lat}, Lon: {lon}"
 
-# Funções para carregar e salvar dados em JSON
+# Funções para carregar e salvar dados em JSON (com Benedito como padrão)
 def carregar_dados_json():
     if os.path.exists(ARQUIVO_COLABORADORES):
         with open(ARQUIVO_COLABORADORES, "r", encoding="utf-8") as f:
             colaboradores = json.load(f)
     else:
-        colaboradores = ["Eu Mesmo (Administrador)"]
+        colaboradores = ["Benedito"]
 
     if os.path.exists(ARQUIVO_REGISTROS):
         with open(ARQUIVO_REGISTROS, "r", encoding="utf-8") as f:
@@ -288,7 +288,6 @@ if menu == "1. Bater Ponto (Celular)":
         st.components.v1.html(geo_html, height=330)
         st.divider()
 
-        # Inicializa com coordenadas padrão para o botão ficar livre de imediato
         if "lat_val" not in st.session_state:
             st.session_state.lat_val = -21.78436
         if "lon_val" not in st.session_state:
@@ -300,7 +299,6 @@ if menu == "1. Bater Ponto (Celular)":
         with col2:
             lon_input = st.number_input("Longitude Capturada", value=st.session_state.lon_val, format="%.5f")
 
-        # Botão liberado e pronto para registrar com a coordenada atual dos inputs
         if st.button("🟢 Confirmar e Bater Ponto", type="primary"):
             agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
             data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
