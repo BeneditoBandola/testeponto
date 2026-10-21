@@ -32,7 +32,7 @@ def carregar_dados_json():
             registros = json.load(f)
         df_registros = pd.DataFrame(registros)
     else:
-        df_registros = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Latitude", "Longitude"])
+        df_registros = pd.DataFrame(columns=["Colaborador", "Tipo", "Data/Hora", "Data", "Hora", "Latitude", "Longitude"])
 
     return colaboradores, df_registros
 
@@ -44,9 +44,49 @@ def salvar_registros(df_registros):
     with open(ARQUIVO_REGISTROS, "w", encoding="utf-8") as f:
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
-# Função para gerar o PDF em MODO PAISAGEM (Horizontal) organizado por data
-def gerar_pdf_paisagem(df):
-    # orientation='L' (Landscape / Paisagem), unidade='mm', formato='A4'
+def consolidar_por_dia(df):
+    """Transforma registros individuais em uma linha por dia com as 4 batidas"""
+    if df.empty:
+        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Refeição", "Volta Refeição", "Saída", "Latitude", "Longitude"])
+    
+    # Garante colunas de Data e Hora se não existirem
+    if "Data" not in df.columns or "Hora" not in df.columns:
+        df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        df["Data"] = df["DataObj"].dt.strftime("%d/%m/%Y")
+        df["Hora"] = df["DataObj"].dt.strftime("%H:%M:%S")
+
+    linhas_consolidadas = []
+    # Agrupa por Colaborador e Data
+    for (colab, data), group in df.groupby(["Colaborador", "Data"]):
+        registro_dia = {
+            "Colaborador": colab,
+            "Data": data,
+            "Entrada": "-",
+            "Saída Refeição": "-",
+            "Volta Refeição": "-",
+            "Saída": "-",
+            "Latitude": group.iloc[0]["Latitude"] if not group.empty else "-",
+            "Longitude": group.iloc[0]["Longitude"] if not group.empty else "-"
+        }
+        
+        for _, row in group.iterrows():
+            tipo = row["Tipo"]
+            hora = row["Hora"]
+            if "Entrada (Ref:" in tipo or tipo == "Entrada":
+                registro_dia["Entrada"] = hora
+            elif "Saída Refeição (Ref:" in tipo or tipo == "Saída Refeição":
+                registro_dia["Saída Refeição"] = hora
+            elif "Volta Refeição (Ref:" in tipo or tipo == "Volta Refeição":
+                registro_dia["Volta Refeição"] = hora
+            elif "Saída (Ref:" in tipo or tipo == "Saída":
+                registro_dia["Saída"] = hora
+                
+        linhas_consolidadas.append(registro_dia)
+        
+    return pd.DataFrame(linhas_consolidadas)
+
+# Função para gerar o PDF em MODO PAISAGEM (Horizontal) consolidado por dia
+def gerar_pdf_paisagem(df_consolidado):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -59,30 +99,28 @@ def gerar_pdf_paisagem(df):
     gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
     pdf.cell(0, 8, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
     pdf.ln(10)
-    
-    # Ordenar por data/hora se houver registros
-    if not df.empty and "Data/Hora" in df.columns:
-        df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
-        df = df.sort_values(by="DataObj", ascending=True)
 
     # Tabela no PDF (A4 Paisagem tem largura útil de cerca de 277mm)
-    pdf.set_font("helvetica", "B", 10)
+    pdf.set_font("helvetica", "B", 9)
     pdf.set_fill_color(220, 220, 220)
     
-    col_widths = [60, 50, 65, 50, 52] # Total = 277 mm
-    headers = ["Colaborador", "Tipo de Batida", "Data e Hora", "Latitude", "Longitude"]
+    col_widths = [55, 28, 35, 38, 38, 35, 24, 24] # Total = 277 mm
+    headers = ["Colaborador", "Data", "Entrada", "Saída Ref.", "Volta Ref.", "Saída", "Lat", "Lon"]
     
     for i, h in enumerate(headers):
         pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 9)
-    for _, row in df.iterrows():
+    pdf.set_font("helvetica", "", 8)
+    for _, row in df_consolidado.iterrows():
         pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
-        pdf.cell(col_widths[1], 7, str(row["Tipo"]), border=1, align="center")
-        pdf.cell(col_widths[2], 7, str(row["Data/Hora"]), border=1, align="center")
-        pdf.cell(col_widths[3], 7, str(row["Latitude"]), border=1, align="center")
-        pdf.cell(col_widths[4], 7, str(row["Longitude"]), border=1, align="center")
+        pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
+        pdf.cell(col_widths[2], 7, str(row["Entrada"]), border=1, align="center")
+        pdf.cell(col_widths[3], 7, str(row["Saída Refeição"]), border=1, align="center")
+        pdf.cell(col_widths[4], 7, str(row["Volta Refeição"]), border=1, align="center")
+        pdf.cell(col_widths[5], 7, str(row["Saída"]), border=1, align="center")
+        pdf.cell(col_widths[6], 7, str(row["Latitude"]), border=1, align="center")
+        pdf.cell(col_widths[7], 7, str(row["Longitude"]), border=1, align="center")
         pdf.ln()
         
     return bytes(pdf.output())
@@ -90,7 +128,7 @@ def gerar_pdf_paisagem(df):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Menu principal (Inicia direto na aba de bater ponto)
+# Menu principal
 st.sidebar.image("https://img.icons8.com/color/96/map-pin.png", width=80)
 st.sidebar.title("Sistema de Ponto")
 menu = st.sidebar.selectbox(
@@ -100,14 +138,12 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto (4 Batidas Diárias)")
-    st.markdown("Horários de referência: **Entrada (07:42)** | **Saída Refeição (12:00)** | **Volta Refeição (13:00)** | **Saída (17:30)**. *Você pode bater em qualquer horário livre.*")
+    st.markdown("Horários de referência: **Entrada (07:42)** | **Saída Refeição (12:00)** | **Volta Refeição (13:00)** | **Saída (17:30)**.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
     else:
         colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
-        
-        # As 4 opções exatas solicitadas
         tipo_batida = st.selectbox(
             "Tipo de Registro", 
             ["Entrada (Ref: 07:42)", "Saída Refeição (Ref: 12:00)", "Volta Refeição (Ref: 13:00)", "Saída (Ref: 17:30)"]
@@ -115,6 +151,7 @@ if menu == "1. Bater Ponto (Celular)":
 
         st.info("👇 Permita o acesso à localização no navegador para registrar o ponto com GPS.")
 
+        # JavaScript para capturar geolocalização e injetar automaticamente nos inputs invisíveis / visíveis
         geo_html = """
         <!DOCTYPE html>
         <html>
@@ -123,7 +160,7 @@ if menu == "1. Bater Ponto (Celular)":
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
             <style>
-                #map { height: 280px; width: 100%; border-radius: 8px; margin-top: 10px; }
+                #map { height: 260px; width: 100%; border-radius: 8px; margin-top: 10px; }
                 .info-box { background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #dee2e6; font-family: sans-serif; }
             </style>
         </head>
@@ -141,6 +178,27 @@ if menu == "1. Bater Ponto (Celular)":
 
                 var marker;
 
+                function setStreamlitValue(lat, lon) {
+                    // Comunicação com os inputs do Streamlit via parent document
+                    const doc = window.parent.document;
+                    const inputs = doc.querySelectorAll('input[type="number"]');
+                    inputs.forEach(input => {
+                        // Procura pelos inputs de número da latitude e longitude baseados em seus valores padrão ou labels
+                        if (input.getAttribute('aria-label') && input.getAttribute('aria-label').includes('Latitude')) {
+                            setInputValue(input, lat);
+                        }
+                        if (input.getAttribute('aria-label') && input.getAttribute('aria-label').includes('Longitude')) {
+                            setInputValue(input, lon);
+                        }
+                    });
+                }
+
+                function setInputValue(input, value) {
+                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, "value").set;
+                    nativeInputValueSetter.call(input, value);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(function(position) {
                         var userLat = position.coords.latitude;
@@ -152,8 +210,11 @@ if menu == "1. Bater Ponto (Celular)":
                         marker = L.marker([userLat, userLon]).addTo(map)
                             .bindPopup("<b>Você está aqui</b>").openPopup();
 
-                        document.getElementById("status").innerHTML = "✅ Localização obtida! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
+                        document.getElementById("status").innerHTML = "✅ Localização obtida com sucesso! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
                         document.getElementById("status").style.color = "green";
+
+                        // Envia para os inputs do Streamlit
+                        setStreamlitValue(userLat, userLon);
 
                     }, function(error) {
                         document.getElementById("status").innerHTML = "⚠️ Ative o GPS no seu celular para registrar a localização.";
@@ -167,19 +228,32 @@ if menu == "1. Bater Ponto (Celular)":
         </html>
         """
         
-        st.components.v1.html(geo_html, height=350)
+        st.components.v1.html(geo_html, height=330)
         st.divider()
 
-        lat_input = st.number_input("Latitude Capturada", value=-23.55052, format="%.5f")
-        lon_input = st.number_input("Longitude Capturada", value=-46.63331, format="%.5f")
+        # Armazena em session_state para persistir os valores capturados pelo JS automaticamente
+        if "lat_val" not in st.session_state:
+            st.session_state.lat_val = -23.55052
+        if "lon_val" not in st.session_state:
+            st.session_state.lon_val = -46.63331
+
+        col1, col2 = st.columns(2)
+        with col1:
+            lat_input = st.number_input("Latitude Capturada", value=st.session_state.lat_val, format="%.5f")
+        with col2:
+            lon_input = st.number_input("Longitude Capturada", value=st.session_state.lon_val, format="%.5f")
 
         if st.button("🟢 Confirmar e Bater Ponto", type="primary"):
             agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
+            data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
+            hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
             
             novo_registro = pd.DataFrame([{
                 "Colaborador": colaborador_atual,
                 "Tipo": tipo_batida,
                 "Data/Hora": agora,
+                "Data": data_atual,
+                "Hora": hora_atual,
                 "Latitude": lat_input,
                 "Longitude": lon_input
             }])
@@ -212,27 +286,52 @@ elif menu == "2. Cadastrar Funcionários":
 
 elif menu == "3. Dashboard Gerencial (RH)":
     st.title("📊 Painel de Controle - Registros e Relatórios")
-    st.markdown("Acompanhe o histórico de marcações, visualize no mapa e exporte em **PDF Paisagem** organizado por data.")
-
-    df_reg = st.session_state.registros_ponto if "registros_ponto" in locals() else df_reg
+    st.markdown("Acompanhe o histórico de marcações, filtre por colaborador/data e exporte o **Espelho de Ponto em PDF**.")
 
     if df_reg.empty:
         st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
     else:
-        # Botão de Exportação para PDF em Modo Paisagem
-        pdf_bytes = gerar_pdf_paisagem(df_reg)
+        # Criação do dataframe consolidado por dia (uma linha por dia com 4 batidas)
+        df_consolidado = consolidar_por_dia(df_reg)
+
+        st.subheader("🔍 Filtros de Busca")
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            colaboradores_filtro = ["Todos"] + sorted(list(df_consolidado["Colaborador"].unique()))
+            filtro_colab = st.selectbox("Filtrar por Colaborador:", colaboradores_filtro)
+            
+        with col_f2:
+            # Opção de filtro por data
+            datas_disponiveis = sorted(list(df_consolidado["Data"].unique()))
+            filtro_data = st.selectbox("Filtrar por Data Específica:", ["Todas"] + datas_disponiveis)
+
+        # Aplicando os filtros
+        df_filtrado = df_consolidado.copy()
+        if filtro_colab != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Colaborador"] == filtro_colab]
+        if filtro_data != "Todas":
+            df_filtrado = df_filtrado[df_filtrado["Data"] == filtro_data]
+
+        st.divider()
+
+        # Botão de Exportação para PDF em Modo Paisagem com base nos dados filtrados
+        pdf_bytes = gerar_pdf_paisagem(df_filtrado)
         st.download_button(
-            label="📄 Baixar Relatório em PDF (Modo Paisagem / Organizado por Data)",
+            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem)",
             data=pdf_bytes,
-            file_name=f"relatorio_ponto_paisagem_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
+            file_name=f"espelho_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
             type="primary"
         )
 
         st.divider()
-        st.subheader("📋 Histórico de Marcações")
-        st.dataframe(df_reg, use_container_width=True)
+        st.subheader("📋 Espelho de Ponto Consolidado (1 Linha por Dia)")
+        st.dataframe(df_filtrado, use_container_width=True)
 
         st.subheader("🗺️ Mapa dos Locais de Batida de Ponto")
+        # Prepara dataframe para o mapa do streamlit
         df_mapa = df_reg.rename(columns={"Latitude": "lat", "Longitude": "lon"})
-        st.map(df_mapa)
+        if filtro_colab != "Todos":
+            df_mapa = df_mapa[df_mapa["Colaborador"] == filtro_colab]
+        st.map(df_mapa[["lat", "lon"]])
