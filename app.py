@@ -47,7 +47,7 @@ def salvar_registros(df_registros):
 def consolidar_por_dia(df):
     """Transforma registros individuais em uma linha por dia com as 4 batidas"""
     if df.empty:
-        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Refeição", "Volta Refeição", "Saída", "Latitude", "Longitude"])
+        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Intervalo", "Entrada", "Saída", "Latitude", "Longitude"])
     
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -60,8 +60,8 @@ def consolidar_por_dia(df):
             "Colaborador": colab,
             "Data": data,
             "Entrada": "-",
-            "Saída Refeição": "-",
-            "Volta Refeição": "-",
+            "Saída Intervalo": "-",
+            "Retorno Intervalo": "-",
             "Saída": "-",
             "Latitude": group.iloc[0]["Latitude"] if not group.empty else "-",
             "Longitude": group.iloc[0]["Longitude"] if not group.empty else "-"
@@ -70,13 +70,14 @@ def consolidar_por_dia(df):
         for _, row in group.iterrows():
             tipo = row["Tipo"]
             hora = row["Hora"]
-            if "Entrada (Ref:" in tipo or tipo == "Entrada":
-                registro_dia["Entrada"] = hora
-            elif "Saída Refeição (Ref:" in tipo or tipo == "Saída Refeição":
-                registro_dia["Saída Refeição"] = hora
-            elif "Volta Refeição (Ref:" in tipo or tipo == "Volta Refeição":
-                registro_dia["Volta Refeição"] = hora
-            elif "Saída (Ref:" in tipo or tipo == "Saída":
+            if tipo == "Entrada":
+                if registro_dia["Entrada"] == "-":
+                    registro_dia["Entrada"] = hora
+                else:
+                    registro_dia["Retorno Intervalo"] = hora
+            elif tipo == "Saída Intervalo":
+                registro_dia["Saída Intervalo"] = hora
+            elif tipo == "Saída":
                 registro_dia["Saída"] = hora
                 
         linhas_consolidadas.append(registro_dia)
@@ -101,7 +102,7 @@ def gerar_pdf_paisagem(df_consolidado):
     pdf.set_fill_color(220, 220, 220)
     
     col_widths = [55, 28, 35, 38, 38, 35, 24, 24]
-    headers = ["Colaborador", "Data", "Entrada", "Saída Ref.", "Volta Ref.", "Saída", "Lat", "Lon"]
+    headers = ["Colaborador", "Data", "Entrada", "Saída Int.", "Retorno Int.", "Saída", "Lat", "Lon"]
     
     for i, h in enumerate(headers):
         pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
@@ -112,8 +113,8 @@ def gerar_pdf_paisagem(df_consolidado):
         pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
         pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
         pdf.cell(col_widths[2], 7, str(row["Entrada"]), border=1, align="center")
-        pdf.cell(col_widths[3], 7, str(row["Saída Refeição"]), border=1, align="center")
-        pdf.cell(col_widths[4], 7, str(row["Volta Refeição"]), border=1, align="center")
+        pdf.cell(col_widths[3], 7, str(row["Saída Intervalo"]), border=1, align="center")
+        pdf.cell(col_widths[4], 7, str(row["Retorno Intervalo"]), border=1, align="center")
         pdf.cell(col_widths[5], 7, str(row["Saída"]), border=1, align="center")
         pdf.cell(col_widths[6], 7, str(row["Latitude"]), border=1, align="center")
         pdf.cell(col_widths[7], 7, str(row["Longitude"]), border=1, align="center")
@@ -134,15 +135,17 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto (4 Batidas Diárias)")
-    st.markdown("Horários de referência: **Entrada (07:42)** | **Saída Refeição (12:00)** | **Volta Refeição (13:00)** | **Saída (17:30)**.")
+    st.markdown("Selecione o tipo de registro desejado e confirme com sua geolocalização.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
     else:
         colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
+        
+        # Opções solicitadas: Entrada, Saída Intervalo, Entrada (Retorno) e Saída
         tipo_batida = st.selectbox(
             "Tipo de Registro", 
-            ["Entrada (Ref: 07:42)", "Saída Refeição (Ref: 12:00)", "Volta Refeição (Ref: 13:00)", "Saída (Ref: 17:30)"]
+            ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
         )
 
         st.info("👇 Permita o acesso à localização no navegador para registrar o ponto com GPS.")
@@ -332,11 +335,9 @@ elif menu == "3. Dashboard Gerencial (RH)":
             if senha_admin == "1234":
                 st.success("✅ Acesso de administrador autorizado!")
                 
-                # Exibe tabela bruta original completa para edição/exclusão detalhada
                 st.markdown("### Tabela Bruta de Registros (Para exclusão individual)")
                 st.dataframe(df_reg, use_container_width=True)
                 
-                # Selecionar um índice da tabela bruta para apagar
                 if not df_reg.empty:
                     indice_para_apagar = st.number_input("Digite o Índice (ID da linha) do registro que deseja apagar:", min_value=0, max_value=len(df_reg)-1, step=1)
                     
