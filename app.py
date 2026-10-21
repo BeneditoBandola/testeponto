@@ -198,7 +198,7 @@ menu = st.sidebar.selectbox(
 
 if menu == "1. Bater Ponto (Celular)":
     st.title("📱 Registro de Ponto")
-    st.markdown("Selecione o tipo de registro desejado e aguarde a captura do seu GPS.")
+    st.markdown("Selecione o tipo de registro desejado. A geolocalização do seu GPS será capturada automaticamente.")
 
     if not lista_colab:
         st.warning("Nenhum colaborador cadastrado. Vá na aba 'Cadastrar Funcionários' primeiro.")
@@ -231,7 +231,7 @@ if menu == "1. Bater Ponto (Celular)":
             <div id="map"></div>
 
             <script>
-                var map = L.map('map').setView([0, 0], 2);
+                var map = L.map('map').setView([-21.78436, -46.58513], 15);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© OpenStreetMap'
                 }).addTo(map);
@@ -268,7 +268,7 @@ if menu == "1. Bater Ponto (Celular)":
                         marker = L.marker([userLat, userLon]).addTo(map)
                             .bindPopup("<b>Você está aqui</b>").openPopup();
 
-                        document.getElementById("status").innerHTML = "✅ Localização real obtida! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
+                        document.getElementById("status").innerHTML = "✅ Localização obtida! Lat: " + userLat.toFixed(5) + " | Lon: " + userLon.toFixed(5);
                         document.getElementById("status").style.color = "green";
 
                         setStreamlitValue(userLat, userLon);
@@ -288,11 +288,11 @@ if menu == "1. Bater Ponto (Celular)":
         st.components.v1.html(geo_html, height=330)
         st.divider()
 
-        # Inicializa com valores vazios/neutros para obrigar a captação real
+        # Inicializa com coordenadas padrão para o botão ficar livre de imediato
         if "lat_val" not in st.session_state:
-            st.session_state.lat_val = 0.0
+            st.session_state.lat_val = -21.78436
         if "lon_val" not in st.session_state:
-            st.session_state.lon_val = 0.0
+            st.session_state.lon_val = -46.58513
 
         col1, col2 = st.columns(2)
         with col1:
@@ -300,33 +300,31 @@ if menu == "1. Bater Ponto (Celular)":
         with col2:
             lon_input = st.number_input("Longitude Capturada", value=st.session_state.lon_val, format="%.5f")
 
+        # Botão liberado e pronto para registrar com a coordenada atual dos inputs
         if st.button("🟢 Confirmar e Bater Ponto", type="primary"):
-            if lat_input == 0.0 and lon_input == 0.0:
-                st.error("⚠️ Aguarde a geolocalização do GPS ser obtida antes de confirmar o ponto.")
-            else:
-                agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
-                data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
-                hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
-                
-                with st.spinner("Buscando endereço correspondente à sua localização GPS..."):
-                    endereco_encontrado = obter_endereco(lat_input, lon_input)
-                
-                novo_registro = pd.DataFrame([{
-                    "Colaborador": colaborador_atual,
-                    "Tipo": tipo_batida,
-                    "Data/Hora": agora,
-                    "Data": data_atual,
-                    "Hora": hora_atual,
-                    "Latitude": lat_input,
-                    "Longitude": lon_input,
-                    "Endereco": endereco_encontrado
-                }])
-                
-                df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
-                salvar_registros(df_reg)
-                
-                st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
-                st.balloons()
+            agora = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M:%S")
+            data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
+            hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
+            
+            with st.spinner("Buscando endereço correspondente à sua localização GPS..."):
+                endereco_encontrado = obter_endereco(lat_input, lon_input)
+            
+            novo_registro = pd.DataFrame([{
+                "Colaborador": colaborador_atual,
+                "Tipo": tipo_batida,
+                "Data/Hora": agora,
+                "Data": data_atual,
+                "Hora": hora_atual,
+                "Latitude": lat_input,
+                "Longitude": lon_input,
+                "Endereco": endereco_encontrado
+            }])
+            
+            df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
+            salvar_registros(df_reg)
+            
+            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
+            st.balloons()
 
 elif menu == "2. Cadastrar Funcionários":
     st.title("👤 Cadastro de Colaboradores")
