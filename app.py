@@ -59,9 +59,15 @@ def salvar_registros(df_registros):
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 def consolidar_por_dia(df):
-    """Transforma registros individuais em uma linha por dia com as 4 batidas"""
+    """Transforma registros individuais em uma linha por dia com as 4 batidas e seus respectivos locais"""
     if df.empty:
-        return pd.DataFrame(columns=["Colaborador", "Data", "Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída", "Localização / Endereço"])
+        return pd.DataFrame(columns=[
+            "Colaborador", "Data", 
+            "Entrada", "Local Entrada", 
+            "Saída Int.", "Local Saída Int.", 
+            "Retorno Int.", "Local Retorno Int.", 
+            "Saída", "Local Saída"
+        ])
     
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -73,70 +79,79 @@ def consolidar_por_dia(df):
         registro_dia = {
             "Colaborador": colab,
             "Data": data,
-            "Entrada": "-",
-            "Saída Intervalo": "-",
-            "Retorno Intervalo": "-",
-            "Saída": "-",
-            "Localização / Endereço": group.iloc[0]["Endereco"] if "Endereco" in group.columns and not group.empty else "-"
+            "Entrada": "-", "Local Entrada": "-",
+            "Saída Int.": "-", "Local Saída Int.": "-",
+            "Retorno Int.": "-", "Local Retorno Int.": "-",
+            "Saída": "-", "Local Saída": "-"
         }
         
         for _, row in group.iterrows():
             tipo = row["Tipo"]
             hora = row["Hora"]
+            end = row.get("Endereco", f"Lat: {row['Latitude']}, Lon: {row['Longitude']}")
+            
             if tipo == "Entrada":
                 if registro_dia["Entrada"] == "-":
                     registro_dia["Entrada"] = hora
+                    registro_dia["Local Entrada"] = end
                 else:
-                    registro_dia["Retorno Intervalo"] = hora
+                    registro_dia["Retorno Int."] = hora
+                    registro_dia["Local Retorno Int."] = end
             elif tipo == "Saída Intervalo":
-                registro_dia["Saída Intervalo"] = hora
+                registro_dia["Saída Int."] = hora
+                registro_dia["Local Saída Int."] = end
+            elif tipo == "Retorno Intervalo":
+                registro_dia["Retorno Int."] = hora
+                registro_dia["Local Retorno Int."] = end
             elif tipo == "Saída":
                 registro_dia["Saída"] = hora
+                registro_dia["Local Saída"] = end
                 
         linhas_consolidadas.append(registro_dia)
         
     return pd.DataFrame(linhas_consolidadas)
 
-# Função para gerar o PDF em MODO PAISAGEM sem o título "Jornada de 4 Registros" e com endereços/coordenadas
+# Função para gerar o PDF em MODO PAISAGEM com endereço próprio por batida
 def gerar_pdf_paisagem(df_consolidado):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=10)
     pdf.add_page()
     
-    # Cabeçalho limpo sem citação indesejada
-    pdf.set_font("helvetica", "B", 16)
-    pdf.cell(0, 10, "Relatorio de Espelho de Ponto", ln=True, align="center")
+    pdf.set_font("helvetica", "B", 15)
+    pdf.cell(0, 8, "Relatorio de Espelho de Ponto", ln=True, align="center")
     
-    pdf.set_font("helvetica", "", 10)
+    pdf.set_font("helvetica", "", 9)
     gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
-    pdf.cell(0, 8, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
-    pdf.ln(10)
+    pdf.cell(0, 6, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
+    pdf.ln(6)
 
-    pdf.set_font("helvetica", "B", 9)
+    pdf.set_font("helvetica", "B", 8)
     pdf.set_fill_color(220, 220, 220)
     
-    # Larguras ajustadas para acomodar o endereço/localização (Total = 277 mm)
-    col_widths = [50, 25, 25, 27, 27, 25, 98]
-    headers = ["Colaborador", "Data", "Entrada", "Saída Int.", "Retorno Int.", "Saída", "Endereço / Coordenada do Local"]
+    # Larguras otimizadas para caber na página A4 Paisagem (Total = 277 mm)
+    col_widths = [40, 22, 17, 39, 17, 39, 17, 39, 17, 31]
+    headers = ["Colab.", "Data", "Ent.", "Local Ent.", "Saída I.", "Local S.I.", "Ret. I.", "Local R.I.", "Saída", "Local Saída"]
     
     for i, h in enumerate(headers):
-        pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
+        pdf.cell(col_widths[i], 7, h, border=1, fill=True, align="center")
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 7.5)
+    pdf.set_font("helvetica", "", 7)
     for _, row in df_consolidado.iterrows():
-        pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
-        pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
-        pdf.cell(col_widths[2], 7, str(row["Entrada"]), border=1, align="center")
-        pdf.cell(col_widths[3], 7, str(row["Saída Intervalo"]), border=1, align="center")
-        pdf.cell(col_widths[4], 7, str(row["Retorno Intervalo"]), border=1, align="center")
-        pdf.cell(col_widths[5], 7, str(row["Saída"]), border=1, align="center")
+        pdf.cell(col_widths[0], 6, str(row["Colaborador"]), border=1)
+        pdf.cell(col_widths[1], 6, str(row["Data"]), border=1, align="center")
         
-        # Tratamento de quebra de texto para o endereço caber perfeitamente na célula
-        endereco_texto = str(row["Localização / Endereço"])
-        if len(endereco_texto) > 75:
-            endereco_texto = endereco_texto[:72] + "..."
-        pdf.cell(col_widths[6], 7, endereco_texto, border=1)
+        pdf.cell(col_widths[2], 6, str(row["Entrada"]), border=1, align="center")
+        pdf.cell(col_widths[3], 6, str(row["Local Entrada"])[:32], border=1)
+        
+        pdf.cell(col_widths[4], 6, str(row["Saída Int."]), border=1, align="center")
+        pdf.cell(col_widths[5], 6, str(row["Local Saída Int."])[:32], border=1)
+        
+        pdf.cell(col_widths[6], 6, str(row["Retorno Int."]), border=1, align="center")
+        pdf.cell(col_widths[7], 6, str(row["Local Retorno Int."])[:32], border=1)
+        
+        pdf.cell(col_widths[8], 6, str(row["Saída"]), border=1, align="center")
+        pdf.cell(col_widths[9], 6, str(row["Local Saída"])[:25], border=1)
         pdf.ln()
         
     return bytes(pdf.output())
@@ -161,7 +176,6 @@ if menu == "1. Bater Ponto (Celular)":
     else:
         colaborador_atual = st.selectbox("Selecione seu Nome:", lista_colab)
         
-        # Opções solicitadas: Entrada, Saída Intervalo, Retorno Intervalo e Saída
         tipo_batida = st.selectbox(
             "Tipo de Registro", 
             ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
@@ -261,7 +275,6 @@ if menu == "1. Bater Ponto (Celular)":
             data_atual = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")
             hora_atual = datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")
             
-            # Obtém o endereço amigável correspondente à geolocalização
             with st.spinner("Buscando endereço correspondente à localização GPS..."):
                 endereco_encontrado = obter_endereco(lat_input, lon_input)
             
