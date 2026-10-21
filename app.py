@@ -33,13 +33,13 @@ def obter_endereco(lat, lon):
         pass
     return f"Lat: {lat}, Lon: {lon}"
 
-# Funções para carregar e salvar dados em JSON (com Benedito como padrão)
+# Funções para carregar e salvar dados em JSON (com Benedito Bandola de Oliveira Silva como padrão)
 def carregar_dados_json():
     if os.path.exists(ARQUIVO_COLABORADORES):
         with open(ARQUIVO_COLABORADORES, "r", encoding="utf-8") as f:
             colaboradores = json.load(f)
     else:
-        colaboradores = ["Benedito"]
+        colaboradores = ["Benedito Bandola de Oliveira Silva"]
 
     if os.path.exists(ARQUIVO_REGISTROS):
         with open(ARQUIVO_REGISTROS, "r", encoding="utf-8") as f:
@@ -188,12 +188,16 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário no Topo
-st.sidebar.image("https://img.icons8.com/color/96/map-pin.png", width=80)
+# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário (Benedito Bandola de Oliveira Silva como padrão)
 st.sidebar.title("Sistema de Ponto")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("👤 Usuário Ativo")
+
+# Garante que "Benedito Bandola de Oliveira Silva" esteja na lista se ainda não estiver
+if "Benedito Bandola de Oliveira Silva" not in lista_colab:
+    lista_colab.insert(0, "Benedito Bandola de Oliveira Silva")
+
 colaborador_atual = st.sidebar.selectbox("Selecione quem está usando:", lista_colab, index=0)
 
 st.sidebar.markdown("---")
