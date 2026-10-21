@@ -33,13 +33,24 @@ def obter_endereco(lat, lon):
         pass
     return f"Lat: {lat}, Lon: {lon}"
 
-# Funções para carregar e salvar dados em JSON (com Benedito Bandola de Oliveira Silva como padrão)
+# Funções para carregar e salvar dados em JSON (forçando Benedito Bandola de Oliveira Silva e removendo "Eu Mesmo")
 def carregar_dados_json():
+    colaboradores = ["Benedito Bandola de Oliveira Silva"]
     if os.path.exists(ARQUIVO_COLABORADORES):
-        with open(ARQUIVO_COLABORADORES, "r", encoding="utf-8") as f:
-            colaboradores = json.load(f)
-    else:
-        colaboradores = ["Benedito Bandola de Oliveira Silva"]
+        try:
+            with open(ARQUIVO_COLABORADORES, "r", encoding="utf-8") as f:
+                dados_salvos = json.load(f)
+                if isinstance(dados_salvos, list):
+                    # Remove "Eu Mesmo" se estiver salvo e adiciona os outros cadastrados
+                    colaboradores = [c for c in dados_salvos if "Eu Mesmo" not in c]
+                    if "Benedito Bandola de Oliveira Silva" not in colaboradores:
+                        colaboradores.insert(0, "Benedito Bandola de Oliveira Silva")
+        except Exception:
+            pass
+
+    # Salva a lista limpa imediatamente para atualizar o JSON local
+    with open(ARQUIVO_COLABORADORES, "w", encoding="utf-8") as f:
+        json.dump(colaboradores, f, ensure_ascii=False, indent=4)
 
     if os.path.exists(ARQUIVO_REGISTROS):
         with open(ARQUIVO_REGISTROS, "r", encoding="utf-8") as f:
@@ -188,15 +199,11 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário (Benedito Bandola de Oliveira Silva como padrão)
+# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário
 st.sidebar.title("Sistema de Ponto")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("👤 Usuário Ativo")
-
-# Garante que "Benedito Bandola de Oliveira Silva" esteja na lista se ainda não estiver
-if "Benedito Bandola de Oliveira Silva" not in lista_colab:
-    lista_colab.insert(0, "Benedito Bandola de Oliveira Silva")
 
 colaborador_atual = st.sidebar.selectbox("Selecione quem está usando:", lista_colab, index=0)
 
@@ -382,7 +389,7 @@ elif menu == "3. Dashboard Gerencial (RH)":
 
         pdf_bytes = gerar_pdf_paisagem_links(df_filtrado)
         st.download_button(
-            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem com Links do Maps)",
+            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem com Links duros do Maps)",
             data=pdf_bytes,
             file_name=f"espelho_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
