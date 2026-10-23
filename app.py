@@ -4,11 +4,12 @@ import requests
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 from fpdf import FPDF
+import streamlit as st
 
 # Configuração do Fuso Horário de Brasília (UTC-3)
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
-# Configuração da página
+# Configuração da página (agora após importar o streamlit)
 st.set_page_config(
     page_title="Sistema de Ponto 4 Batidas",
     page_icon="📍",
@@ -119,7 +120,7 @@ def consolidar_por_dia_duas_linhas(df):
     return pd.DataFrame(linhas_consolidadas)
 
 def gerar_pdf_sem_localizacao(df_duas_linhas):
-    pdf = FPDF(orientation='P', unit='mm', format='A4') # Retrato (Portrait) já que não tem o campo de localização longo
+    pdf = FPDF(orientation='P', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
