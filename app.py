@@ -390,19 +390,28 @@ elif menu == "4. Dashboard Gerencial (RH)":
             df_filtrado = df_filtrado[df_filtrado["Data"] == filtro_data]
 
         st.divider()
+        st.subheader("📋 Espelho de Ponto Consolidado (Editável)")
+        st.markdown("💡 *Clique em qualquer célula de horários (`Hora1`, `Hora2`) ou texto para editar diretamente na tabela antes de gerar o PDF!*")
 
-        pdf_bytes = gerar_pdf_sem_localizacao(df_filtrado)
+        # Tabela 100% interativa e editável diretamente na tela
+        df_editado_usuario = st.data_editor(
+            df_filtrado, 
+            num_rows="dynamic",
+            use_container_width=True,
+            key="editor_espelho_ponto"
+        )
+
+        st.divider()
+
+        # O PDF agora é gerado usando os dados editados pelo usuário na tabela acima!
+        pdf_bytes = gerar_pdf_sem_localizacao(df_editado_usuario)
         st.download_button(
-            label="📄 Baixar Espelho de Ponto em PDF (Sem Localização)",
+            label="📄 Baixar Espelho de Ponto em PDF (Com suas edições)",
             data=pdf_bytes,
             file_name=f"espelho_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
             type="primary"
         )
-
-        st.divider()
-        st.subheader("📋 Espelho de Ponto Consolidado")
-        st.dataframe(df_filtrado, use_container_width=True)
 
         st.divider()
         st.subheader("🔐 Área Administrativa (Correção e Exclusão)")
