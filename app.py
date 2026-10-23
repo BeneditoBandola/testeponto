@@ -9,7 +9,7 @@ import streamlit as st
 # Configuração do Fuso Horário de Brasília (UTC-3)
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
-# Configuração da página (agora após importar o streamlit)
+# Configuração da página
 st.set_page_config(
     page_title="Sistema de Ponto 4 Batidas",
     page_icon="📍",
@@ -20,7 +20,6 @@ st.set_page_config(
 ARQUIVO_COLABORADORES = "colaboradores.json"
 ARQUIVO_REGISTROS = "registros_ponto.json"
 
-# Função para converter Latitude e Longitude em Endereço amigável
 def obter_endereco(lat, lon):
     try:
         url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1"
@@ -33,7 +32,6 @@ def obter_endereco(lat, lon):
         pass
     return f"Lat: {lat}, Lon: {lon}"
 
-# Funções para carregar e salvar dados em JSON (forçando Benedito Bandola de Oliveira Silva)
 def carregar_dados_json():
     colaboradores = ["Benedito Bandola de Oliveira Silva"]
     if os.path.exists(ARQUIVO_COLABORADORES):
@@ -68,7 +66,7 @@ def salvar_registros(df_registros):
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 def consolidar_por_dia_duas_linhas(df):
-    """Transforma registros individuais em 2 linhas por dia (Manhã / Tarde)"""
+    """Transforma registros individuais em 2 linhas por dia, ordenando cronologicamente os horários"""
     if df.empty:
         return pd.DataFrame(columns=["Colaborador", "Data", "Turno", "Tipo1", "Hora1", "Tipo2", "Hora2"])
     
@@ -77,23 +75,40 @@ def consolidar_por_dia_duas_linhas(df):
         df["Data"] = df["DataObj"].dt.strftime("%d/%m/%Y")
         df["Hora"] = df["DataObj"].dt.strftime("%H:%M:%S")
 
+    # Garante ordenação correta por data e hora de cada batida
+    df = df.copy()
+    df["DateTimeObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+    df = df.sort_values(by=["Colaborador", "Data", "DateTimeObj"])
+
     linhas_consolidadas = []
     for (colab, data), group in df.groupby(["Colaborador", "Data"]):
         entrada_reg, saida_int_reg, ret_int_reg, saida_reg = None, None, None, None
         
-        for _, row in group.iterrows():
-            tipo = row["Tipo"]
-            if tipo == "Entrada":
-                if entrada_reg is None:
-                    entrada_reg = row
-                else:
-                    ret_int_reg = row
-            elif tipo == "Saída Intervalo":
-                saida_int_reg = row
-            elif tipo == "Retorno Intervalo":
-                ret_int_reg = row
-            elif tipo == "Saída":
-                saida_reg = row
+        # Atribui sequencialmente na ordem cronológica do dia
+        registros_dia = group.to_dict("records")
+        tipos_esperados = ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
+        
+        # Mapeia flexivelmente na ordem que ocorreram no dia
+        atribuidos = {"Entrada": None, "Saída Intervalo": None, "Retorno Intervalo": None, "Saída": None}
+        
+        # Se houver registros específicos salvos, preenche por tipo ou na ordem de ocorrência
+        idx_reg = 0
+        for t in tipos_esperados:
+            # Procura se tem exatamente esse tipo no grupo
+            match = [r for r in registros_dia if r["Tipo"] == t]
+            if match:
+                atribuidos[t] = match[0]
+                # Remove para não duplicar se houver múltiplos
+                registros_dia.remove(match[0])
+            elif idx_reg < len(registros_dia):
+                # Se não achou o tipo exato, pega o próximo na ordem cronológica
+                atribuidos[t] = registros_dia[idx_reg]
+                idx_reg += 1
+
+        entrada_reg = atribuidos["Entrada"]
+        saida_int_reg = atribuidos["Saída Intervalo"]
+        ret_int_reg = atribuidos["Retorno Intervalo"]
+        saida_reg = atribuidos["Saída"]
 
         # Linha 1: Entrada e Saída Intervalo
         linhas_consolidadas.append({
@@ -145,7 +160,7 @@ def gerar_pdf_sem_localizacao(df_duas_linhas):
     pdf.set_font("helvetica", "", 8.5)
     for _, row in df_duas_linhas.iterrows():
         pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
-        pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
+        pdf.cell(col_widths[1], 7, str(row["Data"], border=1, align="center") if isinstance(row["Data"], str) else pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center"))
         pdf.cell(col_widths[2], 7, str(row["Tipo1"]), border=1, align="center")
         pdf.cell(col_widths[3], 7, str(row["Hora1"]), border=1, align="center")
         pdf.cell(col_widths[4], 7, str(row["Tipo2"]), border=1, align="center")
@@ -157,7 +172,7 @@ def gerar_pdf_sem_localizacao(df_duas_linhas):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Configuração da Barra Lateral (Sidebar) com Seleção de Usuário
+# Configuração da Barra Lateral (Sidebar)
 st.sidebar.title("Sistema de Ponto")
 st.sidebar.markdown("---")
 st.sidebar.subheader("👤 Usuário Ativo")
