@@ -75,33 +75,24 @@ def consolidar_por_dia_duas_linhas(df):
         df["Data"] = df["DataObj"].dt.strftime("%d/%m/%Y")
         df["Hora"] = df["DataObj"].dt.strftime("%H:%M:%S")
 
-    # Garante ordenação correta por data e hora de cada batida
     df = df.copy()
     df["DateTimeObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
     df = df.sort_values(by=["Colaborador", "Data", "DateTimeObj"])
 
     linhas_consolidadas = []
     for (colab, data), group in df.groupby(["Colaborador", "Data"]):
-        entrada_reg, saida_int_reg, ret_int_reg, saida_reg = None, None, None, None
-        
-        # Atribui sequencialmente na ordem cronológica do dia
         registros_dia = group.to_dict("records")
         tipos_esperados = ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"]
         
-        # Mapeia flexivelmente na ordem que ocorreram no dia
         atribuidos = {"Entrada": None, "Saída Intervalo": None, "Retorno Intervalo": None, "Saída": None}
         
-        # Se houver registros específicos salvos, preenche por tipo ou na ordem de ocorrência
         idx_reg = 0
         for t in tipos_esperados:
-            # Procura se tem exatamente esse tipo no grupo
             match = [r for r in registros_dia if r["Tipo"] == t]
             if match:
                 atribuidos[t] = match[0]
-                # Remove para não duplicar se houver múltiplos
                 registros_dia.remove(match[0])
             elif idx_reg < len(registros_dia):
-                # Se não achou o tipo exato, pega o próximo na ordem cronológica
                 atribuidos[t] = registros_dia[idx_reg]
                 idx_reg += 1
 
@@ -160,7 +151,7 @@ def gerar_pdf_sem_localizacao(df_duas_linhas):
     pdf.set_font("helvetica", "", 8.5)
     for _, row in df_duas_linhas.iterrows():
         pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
-        pdf.cell(col_widths[1], 7, str(row["Data"], border=1, align="center") if isinstance(row["Data"], str) else pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center"))
+        pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
         pdf.cell(col_widths[2], 7, str(row["Tipo1"]), border=1, align="center")
         pdf.cell(col_widths[3], 7, str(row["Hora1"]), border=1, align="center")
         pdf.cell(col_widths[4], 7, str(row["Tipo2"]), border=1, align="center")
@@ -172,7 +163,7 @@ def gerar_pdf_sem_localizacao(df_duas_linhas):
 # Carrega os dados salvos
 lista_colab, df_reg = carregar_dados_json()
 
-# Configuração da Barra Lateral (Sidebar)
+# Configuração da Barra Lateral
 st.sidebar.title("Sistema de Ponto")
 st.sidebar.markdown("---")
 st.sidebar.subheader("👤 Usuário Ativo")
