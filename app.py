@@ -1,9 +1,8 @@
-import streamlit as st
-import pandas as pd
-import json
 import os
+import json
 import requests
 from datetime import datetime, timezone, timedelta
+import pandas as pd
 from fpdf import FPDF
 
 # Configuração do Fuso Horário de Brasília (UTC-3)
@@ -33,7 +32,7 @@ def obter_endereco(lat, lon):
         pass
     return f"Lat: {lat}, Lon: {lon}"
 
-# Funções para carregar e salvar dados em JSON (forçando Benedito Bandola de Oliveira Silva e removendo "Eu Mesmo")
+# Funções para carregar e salvar dados em JSON (forçando Benedito Bandola de Oliveira Silva)
 def carregar_dados_json():
     colaboradores = ["Benedito Bandola de Oliveira Silva"]
     if os.path.exists(ARQUIVO_COLABORADORES):
@@ -41,14 +40,12 @@ def carregar_dados_json():
             with open(ARQUIVO_COLABORADORES, "r", encoding="utf-8") as f:
                 dados_salvos = json.load(f)
                 if isinstance(dados_salvos, list):
-                    # Remove "Eu Mesmo" se estiver salvo e adiciona os outros cadastrados
                     colaboradores = [c for c in dados_salvos if "Eu Mesmo" not in c]
                     if "Benedito Bandola de Oliveira Silva" not in colaboradores:
                         colaboradores.insert(0, "Benedito Bandola de Oliveira Silva")
         except Exception:
             pass
 
-    # Salva a lista limpa imediatamente para atualizar o JSON local
     with open(ARQUIVO_COLABORADORES, "w", encoding="utf-8") as f:
         json.dump(colaboradores, f, ensure_ascii=False, indent=4)
 
@@ -70,9 +67,9 @@ def salvar_registros(df_registros):
         json.dump(df_registros.to_dict(orient="records"), f, ensure_ascii=False, indent=4)
 
 def consolidar_por_dia_duas_linhas(df):
-    """Transforma registros individuais em 2 linhas por dia (Linha 1: Entrada/Saída Int | Linha 2: Retorno/Saída)"""
+    """Transforma registros individuais em 2 linhas por dia (Manhã / Tarde)"""
     if df.empty:
-        return pd.DataFrame(columns=["Colaborador", "Data", "Período", "Batida 1 (Tipo)", "Hora 1", "Local 1", "Lat1", "Lon1", "Batida 2 (Tipo)", "Hora 2", "Local 2", "Lat2", "Lon2"])
+        return pd.DataFrame(columns=["Colaborador", "Data", "Turno", "Tipo1", "Hora1", "Tipo2", "Hora2"])
     
     if "Data" not in df.columns or "Hora" not in df.columns:
         df["DataObj"] = pd.to_datetime(df["Data/Hora"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -104,13 +101,8 @@ def consolidar_por_dia_duas_linhas(df):
             "Turno": "Manhã / Início",
             "Tipo1": "Entrada",
             "Hora1": entrada_reg["Hora"] if entrada_reg is not None else "-",
-            "Local1": entrada_reg["Endereco"] if entrada_reg is not None else "-",
-            "LatLon1": (entrada_reg["Latitude"], entrada_reg["Longitude"]) if entrada_reg is not None else None,
-            
             "Tipo2": "Saída Intervalo",
-            "Hora2": saida_int_reg["Hora"] if saida_int_reg is not None else "-",
-            "Local2": saida_int_reg["Endereco"] if saida_int_reg is not None else "-",
-            "LatLon2": (saida_int_reg["Latitude"], saida_int_reg["Longitude"]) if saida_int_reg is not None else None
+            "Hora2": saida_int_reg["Hora"] if saida_int_reg is not None else "-"
         })
 
         # Linha 2: Retorno Intervalo e Saída
@@ -120,21 +112,15 @@ def consolidar_por_dia_duas_linhas(df):
             "Turno": "Tarde / Fim",
             "Tipo1": "Retorno Intervalo",
             "Hora1": ret_int_reg["Hora"] if ret_int_reg is not None else "-",
-            "Local1": ret_int_reg["Endereco"] if ret_int_reg is not None else "-",
-            "LatLon1": (ret_int_reg["Latitude"], ret_int_reg["Longitude"]) if ret_int_reg is not None else None,
-            
             "Tipo2": "Saída",
-            "Hora2": saida_reg["Hora"] if saida_reg is not None else "-",
-            "Local2": saida_reg["Endereco"] if saida_reg is not None else "-",
-            "LatLon2": (saida_reg["Latitude"], saida_reg["Longitude"]) if saida_reg is not None else None
+            "Hora2": saida_reg["Hora"] if saida_reg is not None else "-"
         })
         
     return pd.DataFrame(linhas_consolidadas)
 
-# Função para gerar o PDF em MODO PAISAGEM com 2 linhas por dia e links reais para o Google Maps
-def gerar_pdf_paisagem_links(df_duas_linhas):
-    pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=10)
+def gerar_pdf_sem_localizacao(df_duas_linhas):
+    pdf = FPDF(orientation='P', unit='mm', format='A4') # Retrato (Portrait) já que não tem o campo de localização longo
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
     pdf.set_font("helvetica", "B", 15)
@@ -143,55 +129,26 @@ def gerar_pdf_paisagem_links(df_duas_linhas):
     pdf.set_font("helvetica", "", 9)
     gerado_em = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M:%S")
     pdf.cell(0, 6, f"Gerado em: {gerado_em} (Horario de Brasilia)", ln=True, align="center")
-    pdf.ln(6)
+    pdf.ln(8)
 
-    pdf.set_font("helvetica", "B", 8)
+    pdf.set_font("helvetica", "B", 9)
     pdf.set_fill_color(220, 220, 220)
     
-    col_widths = [45, 22, 28, 16, 75, 28, 16, 47]
-    headers = ["Colaborador", "Data", "1ª Batida", "Hora", "Local / Link Google Maps (Batida 1)", "2ª Batida", "Hora", "Local / Link Google Maps (Batida 2)"]
+    col_widths = [65, 25, 28, 22, 28, 22]
+    headers = ["Colaborador", "Data", "1ª Batida", "Hora", "2ª Batida", "Hora"]
     
     for i, h in enumerate(headers):
-        pdf.cell(col_widths[i], 7, h, border=1, fill=True, align="center")
+        pdf.cell(col_widths[i], 8, h, border=1, fill=True, align="center")
     pdf.ln()
     
-    pdf.set_font("helvetica", "", 7.5)
+    pdf.set_font("helvetica", "", 8.5)
     for _, row in df_duas_linhas.iterrows():
-        pdf.cell(col_widths[0], 6, str(row["Colaborador"]), border=1)
-        pdf.cell(col_widths[1], 6, str(row["Data"]), border=1, align="center")
-        
-        # Batida 1
-        pdf.cell(col_widths[2], 6, str(row["Tipo1"]), border=1, align="center")
-        pdf.cell(col_widths[3], 6, str(row["Hora1"]), border=1, align="center")
-        
-        local1 = str(row["Local1"])
-        latlon1 = row["LatLon1"]
-        if latlon1 and latlon1[0] is not None:
-            link1 = f"https://maps.google.com/?q={latlon1[0]},{latlon1[1]}"
-            if len(local1) > 50:
-                local1 = local1[:47] + "..."
-            pdf.set_text_color(0, 0, 255)
-            pdf.cell(col_widths[4], 6, local1, border=1, link=link1)
-            pdf.set_text_color(0, 0, 0)
-        else:
-            pdf.cell(col_widths[4], 6, "-", border=1, align="center")
-        
-        # Batida 2
-        pdf.cell(col_widths[5], 6, str(row["Tipo2"]), border=1, align="center")
-        pdf.cell(col_widths[6], 6, str(row["Hora2"]), border=1, align="center")
-        
-        local2 = str(row["Local2"])
-        latlon2 = row["LatLon2"]
-        if latlon2 and latlon2[0] is not None:
-            link2 = f"https://maps.google.com/?q={latlon2[0]},{latlon2[1]}"
-            if len(local2) > 30:
-                local2 = local2[:27] + "..."
-            pdf.set_text_color(0, 0, 255)
-            pdf.cell(col_widths[7], 6, local2, border=1, link=link2)
-            pdf.set_text_color(0, 0, 0)
-        else:
-            pdf.cell(col_widths[7], 6, "-", border=1, align="center")
-            
+        pdf.cell(col_widths[0], 7, str(row["Colaborador"]), border=1)
+        pdf.cell(col_widths[1], 7, str(row["Data"]), border=1, align="center")
+        pdf.cell(col_widths[2], 7, str(row["Tipo1"]), border=1, align="center")
+        pdf.cell(col_widths[3], 7, str(row["Hora1"]), border=1, align="center")
+        pdf.cell(col_widths[4], 7, str(row["Tipo2"]), border=1, align="center")
+        pdf.cell(col_widths[5], 7, str(row["Hora2"]), border=1, align="center")
         pdf.ln()
         
     return bytes(pdf.output())
@@ -201,7 +158,6 @@ lista_colab, df_reg = carregar_dados_json()
 
 # Configuração da Barra Lateral (Sidebar) com Seleção de Usuário
 st.sidebar.title("Sistema de Ponto")
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("👤 Usuário Ativo")
 
@@ -210,7 +166,12 @@ colaborador_atual = st.sidebar.selectbox("Selecione quem está usando:", lista_c
 st.sidebar.markdown("---")
 menu = st.sidebar.selectbox(
     "Navegação", 
-    ["1. Bater Ponto (Celular)", "2. Cadastrar Funcionários", "3. Dashboard Gerencial (RH)"]
+    [
+        "1. Bater Ponto (Celular)", 
+        "2. Inserir / Editar Ponto Manualmente", 
+        "3. Cadastrar Funcionários", 
+        "4. Dashboard Gerencial (RH)"
+    ]
 )
 
 if menu == "1. Bater Ponto (Celular)":
@@ -336,10 +297,46 @@ if menu == "1. Bater Ponto (Celular)":
             df_reg = pd.concat([df_reg, novo_registro], ignore_index=True)
             salvar_registros(df_reg)
             
-            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!\n\n📍 **Local:** {endereco_encontrado}")
+            st.success(f"Ponto de **{tipo_batida}** registrado com sucesso para **{colaborador_atual}** às **{agora}**!")
             st.balloons()
 
-elif menu == "2. Cadastrar Funcionários":
+elif menu == "2. Inserir / Editar Ponto Manualmente":
+    st.title("✍️ Inserção e Edição Manual de Ponto")
+    st.markdown("Use esta tela para inserir manualmente pontos passados (como ontem) ou corrigir horários de hoje.")
+
+    with st.form("form_manual"):
+        colaborador_manual = st.selectbox("Colaborador:", lista_colab)
+        tipo_manual = st.selectbox("Tipo de Registro:", ["Entrada", "Saída Intervalo", "Retorno Intervalo", "Saída"])
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            data_manual_obj = st.date_input("Data do Ponto:", value=datetime.now(FUSO_BRASILIA).date())
+        with col_m2:
+            hora_manual_obj = st.time_input("Horário do Ponto:", value=datetime.now(FUSO_BRASILIA).time())
+            
+        btn_salvar_manual = st.form_submit_button("💾 Salvar Registro Manual", type="primary")
+        
+        if btn_salvar_manual:
+            data_str = data_manual_obj.strftime("%d/%m/%Y")
+            hora_str = hora_manual_obj.strftime("%H:%M:%S")
+            data_hora_str = f"{data_str} {hora_str}"
+            
+            novo_registro_manual = pd.DataFrame([{
+                "Colaborador": colaborador_manual,
+                "Tipo": tipo_manual,
+                "Data/Hora": data_hora_str,
+                "Data": data_str,
+                "Hora": hora_str,
+                "Latitude": -21.78436,
+                "Longitude": -46.58513,
+                "Endereco": "Inserido manualmente"
+            }])
+            
+            df_reg = pd.concat([df_reg, novo_registro_manual], ignore_index=True)
+            salvar_registros(df_reg)
+            st.success(f"✅ Ponto manual de **{tipo_manual}** para **{colaborador_manual}** em **{data_hora_str}** salvo com sucesso!")
+
+elif menu == "3. Cadastrar Funcionários":
     st.title("👤 Cadastro de Colaboradores")
     st.markdown("Cadastre novos colaboradores. Os dados são salvos localmente em JSON.")
 
@@ -359,12 +356,12 @@ elif menu == "2. Cadastrar Funcionários":
     st.subheader("📋 Colaboradores Ativos no Sistema")
     st.write(lista_colab)
 
-elif menu == "3. Dashboard Gerencial (RH)":
+elif menu == "4. Dashboard Gerencial (RH)":
     st.title("📊 Painel de Controle - Registros e Relatórios")
     st.markdown("Acompanhe o histórico de marcações, filtre por colaborador/data e exporte o **Espelho de Ponto em PDF**.")
 
     if df_reg.empty:
-        st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto para fazer o primeiro registro!")
+        st.info("Nenhum ponto registrado ainda. Vá na aba de bater ponto ou inserir manualmente para adicionar registros!")
     else:
         df_duas_linhas = consolidar_por_dia_duas_linhas(df_reg)
 
@@ -387,9 +384,9 @@ elif menu == "3. Dashboard Gerencial (RH)":
 
         st.divider()
 
-        pdf_bytes = gerar_pdf_paisagem_links(df_filtrado)
+        pdf_bytes = gerar_pdf_sem_localizacao(df_filtrado)
         st.download_button(
-            label="📄 Baixar Espelho de Ponto em PDF (Modo Paisagem com Links duros do Maps)",
+            label="📄 Baixar Espelho de Ponto em PDF (Sem Localização)",
             data=pdf_bytes,
             file_name=f"espelho_ponto_{datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')}.pdf",
             mime="application/pdf",
@@ -397,14 +394,8 @@ elif menu == "3. Dashboard Gerencial (RH)":
         )
 
         st.divider()
-        st.subheader("📋 Espelho de Ponto (2 Linhas por Dia)")
+        st.subheader("📋 Espelho de Ponto Consolidado")
         st.dataframe(df_filtrado, use_container_width=True)
-
-        st.subheader("🗺️ Mapa dos Locais de Batida de Ponto")
-        df_mapa = df_reg.rename(columns={"Latitude": "lat", "Longitude": "lon"})
-        if filtro_colab != "Todos":
-            df_mapa = df_mapa[df_mapa["Colaborador"] == filtro_colab]
-        st.map(df_mapa[["lat", "lon"]])
 
         st.divider()
         st.subheader("🔐 Área Administrativa (Correção e Exclusão)")
@@ -424,7 +415,7 @@ elif menu == "3. Dashboard Gerencial (RH)":
                     if st.button("🗑️ Excluir Registro Selecionado", type="secondary"):
                         df_reg = df_reg.drop(indice_para_apagar).reset_index(drop=True)
                         salvar_registros(df_reg)
-                        st.success(f"Registro do índice {indice_para_apagar} excluído com sucesso! Recarregue a página se necessário.")
+                        st.success(f"Registro do índice {indice_para_apagar} excluído com sucesso!")
                         st.rerun()
                 
                 st.markdown("---")
